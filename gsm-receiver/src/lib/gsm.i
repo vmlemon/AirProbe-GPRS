@@ -22,6 +22,11 @@
 
 %feature("autodoc", "1");		// generate python docstrings
 
+/* workaround for swig bug with gcc >= 4.6.1 */
+%{
+#include <cstddef>
+%}
+
 %include "exception.i"
 %import "gnuradio.i"			// the common stuff
 
