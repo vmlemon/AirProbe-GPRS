@@ -1,0 +1,245 @@
+diff --git a/gsm-receiver/src/lib/decoder/gsmstack.c b/gsm-receiver/src/lib/decoder/gsmstack.c
+index 340990f..144c851 100644
+--- a/gsm-receiver/src/lib/decoder/gsmstack.c
++++ b/gsm-receiver/src/lib/decoder/gsmstack.c
+@@ -183,6 +183,9 @@ static void burst_octify(unsigned char *dest,
+           *ss = ((fn % 102) > 51) ? 7 :  3;
+       }
+   }
++  else if (type == TST_PDCH) {
++    chan_type = GSMTAP_CHANNEL_PACCH;
++  }
+   else if (type == TST_TCHF) {
+     chan_type = GSMTAP_CHANNEL_TCH_F | GSMTAP_CHANNEL_ACCH;
+   }
+@@ -194,7 +197,7 @@ static void burst_octify(unsigned char *dest,
+  * Initialize a new GSMSTACK context.
+  */
+ int
+-GS_new(GS_CTX *ctx)
++GS_new(GS_CTX *ctx, int init_gprs)
+ {
+ 	struct sockaddr_in sin;
+ 
+@@ -217,6 +220,15 @@ static void burst_octify(unsigned char *dest,
+ 	/* Add a local sink to the existing GSMTAP source */
+ 	gsmtap_source_add_sink(ctx->gsmtap_inst);
+ 
++	if (init_gprs) {
++		const char filename[] = "gprs.bursts";
++		ctx->gprsdecode_file = fopen(filename, "w");
++		ctx->gprsdecode_burst = malloc(sizeof(struct l1ctl_burst_ind));
++	} else {
++		ctx->gprsdecode_file = NULL;
++		ctx->gprsdecode_burst = NULL;
++	}
++
+ 	return 0;
+ }
+ 
+diff --git a/gsm-receiver/src/lib/decoder/gsmstack.h b/gsm-receiver/src/lib/decoder/gsmstack.h
+index 33bdaf7..5709e79 100644
+--- a/gsm-receiver/src/lib/decoder/gsmstack.h
++++ b/gsm-receiver/src/lib/decoder/gsmstack.h
+@@ -7,6 +7,7 @@
+ #endif
+ 
+ //#include <linux/if_ether.h>
++#include <inttypes.h>
+ #include "interleave.h"
+ 
+ enum BURST_TYPE {
+@@ -27,7 +28,8 @@ enum TIMESLOT_TYPE {
+ 	TST_FCCH_SCH_BCCH_CCCH_SDCCH4,
+ 	TST_FCCH_SCH_BCCH_CCCH,
+ 	TST_SDCCH8,
+-	TST_TCHF
++	TST_TCHF,
++	TST_PDCH
+ };
+ 
+ struct gs_ts_ctx {
+@@ -40,6 +42,20 @@ struct gs_ts_ctx {
+ };
+ 
+ struct gsmtap_inst;
++// Defines and header structure from gprsdecode
++#define ARFCN_UPLINK 0x4000
++#define BI_FLG_DUMMY    (1<<4)
++#define BI_FLG_SACCH    (1<<5)
++#define RSL_CHAN_Bm_ACCHs  0x08
++struct l1ctl_burst_ind {
++    uint32_t frame_nr;
++    uint16_t band_arfcn;    /* ARFCN + band + ul indicator               */
++    uint8_t chan_nr;        /* GSM 08.58 channel number (9.3.1)          */
++    uint8_t flags;          /* BI_FLG_xxx + burst_id = 2LSBs             */
++    uint8_t rx_level;       /* 0 .. 63 in typical GSM notation (dBm+110) */
++    uint8_t snr;            /* Reported SNR >> 8 (0-255)                 */
++    uint8_t bits[15];       /* 114 bits + 2 steal bits. Filled MSB first */
++} __attribute__((packed));
+ 
+ typedef struct
+ {
+@@ -55,9 +71,13 @@ struct gs_ts_ctx {
+ 	struct gs_ts_ctx ts_ctx[8];
+ 
+ 	struct gsmtap_inst *gsmtap_inst;
++
++	// GPRS fields
++    FILE *gprsdecode_file;
++	struct l1ctl_burst_ind *gprsdecode_burst;
+ } GS_CTX;
+ 
+-int GS_new(GS_CTX *ctx);
++int GS_new(GS_CTX *ctx, int init_gprs);
+ int GS_process(GS_CTX *ctx, int ts, int type, const unsigned char *src, int fn, int first_burst);
+ 
+ #ifdef __cplusplus
+diff --git a/gsm-receiver/src/lib/gsm_constants.h b/gsm-receiver/src/lib/gsm_constants.h
+index f6048f2..b29897a 100644
+--- a/gsm-receiver/src/lib/gsm_constants.h
++++ b/gsm-receiver/src/lib/gsm_constants.h
+@@ -37,7 +37,7 @@
+ #define MAX_SCH_ERRORS    5  //maximum number of subsequent sch errors after which gsm receiver goes to find_next_fcch state
+ 
+ typedef enum {empty, fcch_burst, sch_burst, normal_burst, rach_burst, dummy, dummy_or_normal} burst_type;
+-typedef enum {unknown, multiframe_26, multiframe_51} multiframe_type;
++typedef enum {unknown, multiframe_26, multiframe_51, multiframe_52} multiframe_type;
+ 
+ static const unsigned char SYNC_BITS[] = {
+   1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0,
+@@ -62,6 +62,10 @@
+ /*                                       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50 */
+ const unsigned SDCCH_SACCH_4_MAP[51] =  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  0};
+ 
++const unsigned PDTCH_FRAMES[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50};
++const unsigned PDTCH_FIRST[]  = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0,  1,  0,  0,  0};
++
++
+ #define TSC0  0
+ #define TSC1  1
+ #define TSC2  2
+diff --git a/gsm-receiver/src/lib/gsm_receiver_cf.cc b/gsm-receiver/src/lib/gsm_receiver_cf.cc
+index b2b7644..c461a80 100644
+--- a/gsm-receiver/src/lib/gsm_receiver_cf.cc
++++ b/gsm-receiver/src/lib/gsm_receiver_cf.cc
+@@ -36,6 +36,7 @@
+ #include <string.h>
+ #include <decoder/sch.h>
+ #include <decoder/a5-1-2.h>//!!
++#include <arpa/inet.h>
+ 
+ 
+ #include "RxBurst.h"
+@@ -87,6 +88,39 @@ void decrypt(const unsigned char * burst_binary, byte * KC, unsigned char * decr
+   }
+ }
+ 
++
++//TODO: this shouldn't be here */
++
++
++
++void dump_bits_gprsdecode(GS_CTX *ctx, char * decrypted_data, burst_counter burst_nr)
++{
++  ctx->gprsdecode_burst->frame_nr = htonl(burst_nr.get_frame_nr());
++  ctx->gprsdecode_burst->band_arfcn = 0;//htons(617 | ARFCN_UPLINK);
++  ctx->gprsdecode_burst->chan_nr = RSL_CHAN_Bm_ACCHs | burst_nr.get_timeslot_nr();
++  ctx->gprsdecode_burst->flags = 0;
++  ctx->gprsdecode_burst->rx_level = 0;
++  ctx->gprsdecode_burst->snr = 0;
++
++  static BitVector tmpbits = BitVector(116);
++  BitVector inBurst = BitVector(NULL, decrypted_data, decrypted_data+148);
++  inBurst.segment(3, 57).copyToSegment(tmpbits,0);
++  inBurst.segment(88, 57).copyToSegment(tmpbits,57);
++  tmpbits[114] = inBurst.bit(60);
++  tmpbits[115] = inBurst.bit(87);
++//  LOG(NOTICE) << "PDTCH burst " << inBurst.time() << " " <<  tmpbits;
++  tmpbits.pack(ctx->gprsdecode_burst->bits);
++  fwrite(ctx->gprsdecode_burst, sizeof(*ctx->gprsdecode_burst), 1, ctx->gprsdecode_file);
++
++  /* Plain bits */
++  printf("P0 %d %d: ", burst_nr.get_frame_nr(), burst_nr.get_frame_nr_mod());
++  for (int i = 0; i < 57; i++)
++    printf("%d", decrypted_data[i+3]);
++  for (int i = 0; i < 57; i++)
++    printf("%d", decrypted_data[i+88]);
++  printf("\n");
++}
++
+ //TODO: this shouldn't be here */
+ void dump_bits(const unsigned char * burst_binary, unsigned char * decrypted_data, burst_counter burst_nr, bool first_burst)
+ {
+@@ -154,6 +188,8 @@ void gsm_receiver_cf::read_configuration(std::string configuration)
+     d_gs_ctx.ts_ctx[ts].type = TST_FCCH_SCH_BCCH_CCCH;
+   else if((char)configuration[1] == 'S')
+     d_gs_ctx.ts_ctx[ts].type = TST_SDCCH8;
++  else if((char)configuration[1] == 'P')
++    d_gs_ctx.ts_ctx[ts].type = TST_PDCH;
+   else if((char)configuration[1] == 'T') {
+     d_gs_ctx.ts_ctx[ts].type = TST_TCHF;
+     if((char)configuration[2] == 'E')
+@@ -230,6 +266,18 @@ void gsm_receiver_cf::process_normal_burst(burst_counter burst_nr, const unsigne
+     GS_process(&d_gs_ctx, TIMESLOT0 + ts, NORMAL, &decrypted_data[3], burst_nr.get_frame_nr(), first_burst);
+   }
+ 
++  /* handle PDCH timeslots */
++  if (d_gs_ctx.ts_ctx[ts].type == TST_PDCH) {
++    // No encryption in GPRS on Um level
++    #if 1 /* dump cipher, plain and keystream bits */
++    dump_bits_gprsdecode(&d_gs_ctx, (char*)burst_binary, burst_nr);
++    #endif
++    // TODO: Implement further processing instead of relying on 'gprsdecode'
++#if 0
++    GS_process(&d_gs_ctx, TIMESLOT0 + ts, NORMAL, &decrypted_data[3], burst_nr.get_frame_nr(), first_burst);
++#endif
++  }
++
+   /* TS0 is special (TODO) */
+   if (ts == 0) {
+     memcpy(decrypted_data, burst_binary, sizeof(decrypted_data));
+@@ -279,6 +327,10 @@ void gsm_receiver_cf::configure_receiver()
+       d_channel_conf.set_multiframe_type(ts, multiframe_51);
+       d_channel_conf.set_burst_types(ts, SDCCH_SACCH_8_FRAMES, SDCCH_SACCH_8_FIRST, sizeof(SDCCH_SACCH_8_FRAMES) / sizeof(unsigned), dummy_or_normal);  
+     }
++    else if (d_gs_ctx.ts_ctx[ts].type == TST_PDCH) {
++      d_channel_conf.set_multiframe_type(ts, multiframe_52);
++      d_channel_conf.set_burst_types(ts, PDTCH_FRAMES, PDTCH_FIRST, sizeof(PDTCH_FRAMES) / sizeof(unsigned), dummy_or_normal);  
++    }
+   }
+ }
+ 
+@@ -354,7 +406,7 @@ void gsm_receiver_cf::configure_receiver()
+   read_key(key); //!!
+ 
+   /* Initialize GSM Stack, clear d_gs_ctx */
+-  GS_new(&d_gs_ctx); //TODO: remove it! it's not a right place for a decoder
++  GS_new(&d_gs_ctx, 1); //TODO: remove it! it's not a right place for a decoder
+ 
+   /* configuration is stored in d_gs_ctx */
+   read_configuration(configuration);
+diff --git a/gsm-receiver/src/lib/gsm_receiver_config.cc b/gsm-receiver/src/lib/gsm_receiver_config.cc
+index 33e66b3..4165fd3 100644
+--- a/gsm-receiver/src/lib/gsm_receiver_config.cc
++++ b/gsm-receiver/src/lib/gsm_receiver_config.cc
+@@ -75,6 +75,9 @@ burst_type channel_configuration::get_burst_type(burst_counter burst_nr)
+     case multiframe_51:
+       nr = burst_nr.get_t3();
+       break;
++    case multiframe_52:
++      nr = burst_nr.get_frame_nr()%52;
++      break;
+     default:
+       nr = 0;
+       break;
+@@ -96,6 +99,9 @@ bool channel_configuration::get_first_burst(burst_counter burst_nr)
+     case multiframe_51:
+       nr = burst_nr.get_t3();
+       break;
++    case multiframe_52:
++      nr = burst_nr.get_frame_nr()%52;
++      break;
+     default:
+       nr = 0;
+       break;

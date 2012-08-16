@@ -1,0 +1,12 @@
+diff --git a/gsm-receiver/README b/gsm-receiver/README
+index 190c6cb..9f8898c 100644
+--- a/gsm-receiver/README
++++ b/gsm-receiver/README
+@@ -12,6 +12,7 @@ Usage:
+      0B : TS0  "FCCH + SCH + BCCH + CCCH"
+      1S : TS1  SDCCH/8
+      2T : TS2  Traffic
++     7P : TS7  Packet Data Channel
+ 
+ * Specifying a key will decrypt all traffic burst (SDCCH, SACCH, TCH)
+   using A5/1 before decoding
