@@ -11,11 +11,11 @@ prefix=/usr/local
 exec_prefix=${prefix}
 
 # Where to look in the build tree for our shared library
-libbld=/home/tysonkey/airprobe/gsm-tvoid/src/lib
+libbld=/home/tysonkey/vonga/gsm-tvoid/src/lib
 # Where to look in the src tree for swig generated python code
-libsrc=/home/tysonkey/airprobe/gsm-tvoid/src/lib
+libsrc=/home/tysonkey/vonga/gsm-tvoid/src/lib
 # Where to look in the src tree for hand written python code
-py=/home/tysonkey/airprobe/gsm-tvoid/src/python
+py=/home/tysonkey/vonga/gsm-tvoid/src/python
 
 # Where to look for installed GNU Radio python modules
 # FIXME this is wrong on a distcheck.  We really need to ask gnuradio-core

@@ -256,3 +256,4 @@ $(DEPDIR)/gsm-generate-stamp:
 # we have accurate dependencies for our swig stuff, which is good.
 
 @am__include@ @am__quote@./$(DEPDIR)/gsm.d@am__quote@
+
