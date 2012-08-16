@@ -10,7 +10,7 @@
 #include "sch.h"
 #include "cch.h"
 #include "data_out.h"
-#include <cstdio>
+#include <stdio>
 
 struct _opt opt;
 
