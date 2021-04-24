@@ -13,7 +13,7 @@
 
 import sys
 import math
-from gnuradio import gr, gru, eng_notation, blks2, optfir
+from gnuradio import gr, gru, eng_notation, blocks, filter
 from gnuradio.eng_option import eng_option
 from gnuradio.wxgui import fftsink2
 from gnuradio.wxgui import forms
@@ -32,7 +32,7 @@ class tune_corrector(gr.feval_dd):
         self.top_block = top_block
     def eval(self, freq_offset):
         self.top_block.offset = self.top_block.offset + int(freq_offset)
-        self.top_block.tuner.set_center_freq(self.top_block.offset)
+        self.top_block.tuner.set_center_freq(-self.top_block.offset)
         return freq_offset
 
 class synchronizer(gr.feval_dd):
@@ -54,12 +54,12 @@ class top_block(grc_wxgui.top_block_gui):
 
     self.tune_corrector_callback = tune_corrector(self)
     self.synchronizer_callback = synchronizer(self)
-    self.converter = gr.vector_to_stream(gr.sizeof_float, 142)
+    self.converter = blocks.vector_to_stream(gr.sizeof_float, 142)
 
     self.ifreq = options.frequency
     self.rfgain = options.gain
 
-    self.src = osmosdr.source_c(options.args)
+    self.src = osmosdr.source(options.args)
     self.src.set_center_freq(self.ifreq)
     self.src.set_sample_rate(int(options.sample_rate))
 
@@ -82,17 +82,17 @@ class top_block(grc_wxgui.top_block_gui):
 
     self.offset = 0
 
-    taps = gr.firdes.low_pass(1.0, sample_rate, 145e3, 10e3, gr.firdes.WIN_HANN)
-    self.tuner = gr.freq_xlating_fir_filter_ccf(1, taps, self.offset, sample_rate)
+    taps = filter.firdes.low_pass(1.0, sample_rate, 145e3, 10e3, filter.firdes.WIN_HANN)
+    self.tuner = filter.freq_xlating_fir_filter_ccf(1, taps, self.offset, sample_rate)
 
-    self.interpolator = gr.fractional_interpolator_cc(0, sps)
+    self.interpolator = filter.fractional_resampler_cc(0, sps)
 
     self.receiver = gsm.receiver_cf(
         self.tune_corrector_callback, self.synchronizer_callback, 4,
         options.key.replace(' ', '').lower(),
         options.configuration.upper())
 
-    self.output = gr.file_sink(gr.sizeof_float, options.output_file)
+    self.output = blocks.file_sink(gr.sizeof_float, options.output_file)
 
     self.connect(self.src, self.tuner, self.interpolator, self.receiver, self.converter, self.output)
 
